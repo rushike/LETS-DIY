@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Directory Tree Viewer</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+
+    .folder {
+      cursor: pointer;
+      margin-left: 20px;
+    }
+
+    .children {
+      display: none;
+      margin-left: 20px;
+      border-left: 1px dashed #ccc;
+      padding-left: 10px;
+    }
+
+    .folder.open > .children {
+      display: block;
+    }
+
+    .folder-label {
+      font-weight: bold;
+      color: #2a5db0;
+    }
+
+    .size {
+      color: #555;
+      font-size: 0.9em;
+      margin-left: 8px;
+    }
+
+    input[type="text"] {
+      width: 400px;
+      padding: 6px;
+      font-size: 1em;
+    }
+
+    button {
+      padding: 6px 12px;
+      font-size: 1em;
+    }
+
+    .error {
+      color: red;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>📁 Directory Tree Viewer</h2>
+
+  <div>
+    <input type="text" id="dirInput" placeholder="Enter directory path (e.g., /Users/you/Documents)">
+    <button onclick="loadDir()">Load</button>
+  </div>
+
+  <p class="error" id="errorMsg"></p>
+
+  <div id="treeContainer"></div>
+
+  <script>
+    function formatSize(bytes) {
+      if (bytes === 0) return '0 B';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(1024));
+      return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
+    }
+
+    function createNode(data, depth = 0) {
+      const div = document.createElement('div');
+      div.className = 'folder';
+
+      const label = document.createElement('span');
+      label.className = 'folder-label';
+      label.textContent = data.name;
+      label.style.marginLeft = depth * 10 + 'px';
+
+      const size = document.createElement('span');
+      size.className = 'size';
+      size.textContent = `(${formatSize(data.size)})`;
+
+      div.appendChild(label);
+      div.appendChild(size);
+
+      if (data.children && data.children.length > 0) {
+        const childrenDiv = document.createElement('div');
+        childrenDiv.className = 'children';
+
+        for (const child of data.children) {
+          childrenDiv.appendChild(createNode(child, depth + 1));
+        }
+
+        label.onclick = () => {
+          div.classList.toggle('open');
+        };
+
+        div.appendChild(childrenDiv);
+      }
+
+      return div;
+    }
+
+    async function loadDir() {
+      const path = document.getElementById('dirInput').value.trim();
+      const errorMsg = document.getElementById('errorMsg');
+      errorMsg.textContent = '';
+      const container = document.getElementById('treeContainer');
+      container.innerHTML = '';
+
+      if (!path) {
+        errorMsg.textContent = 'Please enter a directory path.';
+        return;
+      }
+
+      try {
+        const response = await fetch(`http://localhost:8000/api/dir_info?dirpath=${encodeURIComponent(path)}`);
+        if (!response.ok) {
+          const errData = await response.json();
+          errorMsg.textContent = errData.error || 'Failed to load directory.';
+          return;
+        }
+
+        const data = await response.json();
+        const rootNode = createNode(data);
+        container.appendChild(rootNode);
+      } catch (e) {
+        errorMsg.textContent = 'Error fetching data.';
+        console.error(e);
+      }
+    }
+  </script>
+
+</body>
+</html>

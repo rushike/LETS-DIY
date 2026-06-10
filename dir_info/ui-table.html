@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Directory Tree Viewer</title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+    }
+
+    #topControls {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background-color: white;
+      padding: 20px;
+      z-index: 10;
+      border-bottom: 1px solid #ccc;
+    }
+
+    .controls-row {
+      display: flex;
+      justify-content: space-between; /* breadcrumb left, search right */
+      align-items: center;
+      margin-top: 10px;
+    }
+
+    #breadcrumb {
+      font-size: 0.9em;
+    }
+
+    #breadcrumb span {
+      cursor: pointer;
+      color: blue;
+      text-decoration: underline;
+      margin-right: 5px;
+    }
+
+    #breadcrumb span:hover {
+      text-decoration: none;
+    }
+
+    .search-box input {
+      width: 250px;
+      padding: 6px;
+      font-size: 1em;
+    }
+
+    #breadcrumb {
+      margin-top: 10px;
+      font-size: 0.9em;
+    }
+
+    #breadcrumb span {
+      cursor: pointer;
+      color: blue;
+      text-decoration: underline;
+      margin-right: 5px;
+    }
+
+    #breadcrumb span:hover {
+      text-decoration: none;
+    }
+
+    #tableContainer {
+      position: absolute;
+      top: 240px;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      overflow-y: auto;
+      padding: 0 20px 20px 20px;
+    }
+
+    input[type="text"] {
+      width: 400px;
+      padding: 6px;
+      font-size: 1em;
+    }
+
+    button {
+      padding: 6px 12px;
+      font-size: 1em;
+      margin-right: 5px;
+    }
+
+    .error {
+      color: red;
+      margin-top: 10px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 8px;
+      border-bottom: 1px solid #ccc;
+    }
+
+    th {
+      background-color: #f2f2f2;
+      cursor: pointer;
+    }
+
+    .folder-row {
+      cursor: pointer;
+    }
+
+    .indent {
+      padding-left: 20px;
+    }
+
+    .search-box {
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="topControls">
+  <h2>📁 Directory Tree Viewer</h2>
+
+  <div>
+    <input type="text" id="dirInput" placeholder="Enter directory path (e.g., /Users/you/Documents)">
+    <button onclick="loadLs()">LS</button>
+    <button onclick="loadDir()">Load</button>
+    <button onclick="refreshDir()">🔄 Refresh</button>
+    <button onclick="goUp()">⬅ Up</button>
+  </div>
+
+  <div class="controls-row">
+    <div id="breadcrumb"></div>
+
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="Search files or folders..." oninput="filterTable()">
+    </div>
+  </div>
+  
+  <p class="error" id="errorMsg"></p>
+</div>
+
+<div id="tableContainer">
+  <table id="dirTable">
+    <thead>
+    <tr>
+      <th onclick="sortTable(0)">Name 🔽</th>
+      <th onclick="sortTable(1)">Size</th>
+      <th onclick="sortTable(2)">Type</th>
+    </tr>
+    </thead>
+    <tbody id="dirTableBody"></tbody>
+  </table>
+</div>
+
+<script>
+  let flatData = [];
+  let sortDirection = [true, true, true];
+
+  window.onload = () => {
+    const savedPath = localStorage.getItem('savedDirPath');
+    if (savedPath) {
+      document.getElementById('dirInput').value = savedPath;
+      renderBreadcrumb(savedPath);
+    }
+  };
+
+  document.getElementById('dirInput').addEventListener('input', (e) => {
+    localStorage.setItem('savedDirPath', e.target.value);
+    renderBreadcrumb(e.target.value);
+  });
+
+  function formatSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
+  }
+
+  function buildTable() {
+    const tbody = document.getElementById('dirTableBody');
+    tbody.innerHTML = '';
+
+    for (const item of flatData) {
+      const tr = document.createElement('tr');
+      tr.dataset.path = item.path;
+      tr.classList.add(item.type === 'Folder' ? 'folder-row' : 'file-row');
+
+      const nameTd = document.createElement('td');
+      nameTd.innerHTML = (item.type === 'Folder' ? '📁 ' : '📄 ') + item.name;
+      nameTd.className = 'indent';
+      tr.appendChild(nameTd);
+
+      const sizeTd = document.createElement('td');
+      sizeTd.textContent = item.size ? formatSize(item.size) : '-';
+      tr.appendChild(sizeTd);
+
+      const typeTd = document.createElement('td');
+      typeTd.textContent = item.type;
+      tr.appendChild(typeTd);
+
+      if (item.type === 'Folder') {
+        tr.addEventListener('click', () => {
+          loadLs(item.path); // ✅ Navigate into folder
+        });
+      }
+
+      tbody.appendChild(tr);
+    }
+  }
+
+  function renderBreadcrumb(path) {
+    const breadcrumb = document.getElementById('breadcrumb');
+    breadcrumb.innerHTML = '';
+
+    const parts = path.split('/').filter(Boolean);
+    let currentPath = path.startsWith('/') ? '/' : '';
+
+    parts.forEach((part, index) => {
+      currentPath += part + (index < parts.length - 1 ? '/' : '');
+
+      const span = document.createElement('span');
+      span.textContent = part;
+      span.onclick = () => loadLs(currentPath);
+      breadcrumb.appendChild(span);
+
+      if (index < parts.length - 1) {
+        breadcrumb.appendChild(document.createTextNode(' / '));
+      }
+    });
+
+    // Update the input field as well
+    document.getElementById('dirInput').value = path;
+  }
+
+  async function loadDir() {
+    const path = document.getElementById('dirInput').value.trim();
+    localStorage.setItem('savedDirPath', path);
+    const errorMsg = document.getElementById('errorMsg');
+    errorMsg.textContent = '';
+    flatData = [];
+
+    if (!path) {
+      errorMsg.textContent = 'Please enter a directory path.';
+      return;
+    }
+
+    try {
+      const response = await fetch(`http://localhost:8000/api/dir_info?dirpath=${encodeURIComponent(path)}`);
+      if (!response.ok) {
+        const errData = await response.json();
+        errorMsg.textContent = errData.error || 'Failed to load directory.';
+        return;
+      }
+
+      const data = await response.json();
+
+      function flattenTree(node, depth = 0) {
+        const id = Math.random().toString(36).substr(2, 9);
+        flatData.push({
+          id,
+          name: node.name,
+          size: node.size,
+          type: node.children ? 'Folder' : 'File',
+          path: node.path || '',
+        });
+
+        // if (node.children) {
+        //   for (const child of node.children) {
+        //     flattenTree(child, depth + 1);
+        //   }
+        // }
+      }
+
+      flattenTree(data);
+      buildTable();
+      renderBreadcrumb(path);
+    } catch (e) {
+      errorMsg.textContent = 'Error fetching data.';
+      console.error(e);
+    }
+  }
+
+  async function loadLs(customPath = null) {
+    const pathInput = document.getElementById('dirInput');
+    const path = customPath || pathInput.value.trim();
+    localStorage.setItem('savedDirPath', path);
+    const errorMsg = document.getElementById('errorMsg');
+    errorMsg.textContent = '';
+    flatData = [];
+
+    if (!path) {
+      errorMsg.textContent = 'Please enter a directory path.';
+      return;
+    }
+
+    try {
+      const response = await fetch(`http://localhost:8000/api/ls?dirpath=${encodeURIComponent(path)}`);
+      if (!response.ok) {
+        const errData = await response.json();
+        errorMsg.textContent = errData.detail || 'Failed to list directory.';
+        return;
+      }
+
+      const data = await response.json();
+
+      flatData = data.map(item => ({
+        id: Math.random().toString(36).substr(2, 9),
+        name: item.name,
+        size: item.size ?? 0,
+        type: item.total_items === 0 ? 'File' : 'Folder',
+        path: item.path,
+      }));
+
+      pathInput.value = path;
+      renderBreadcrumb(path);
+      buildTable();
+    } catch (e) {
+      errorMsg.textContent = 'Error fetching data.';
+      console.error(e);
+    }
+  }
+
+  async function refreshDir() {
+    const path = document.getElementById('dirInput').value.trim();
+    localStorage.setItem('savedDirPath', path);
+    const errorMsg = document.getElementById('errorMsg');
+    errorMsg.textContent = '';
+    flatData = [];
+
+    if (!path) {
+      errorMsg.textContent = 'Please enter a directory path.';
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/dir_info?dirpath=${encodeURIComponent(path)}&refresh=true`
+      );
+
+      if (!response.ok) {
+        const errData = await response.json();
+        errorMsg.textContent = errData.error || 'Failed to refresh directory.';
+        return;
+      }
+
+      const data = await response.json();
+
+      // Flatten just the root folder (same logic as loadDir)
+      function flattenTree(node) {
+        flatData.push({
+          id: Math.random().toString(36).substr(2, 9),
+          name: node.name,
+          size: node.size,
+          type: node.children ? 'Folder' : 'File',
+          path: node.path || '',
+        });
+      }
+
+      flattenTree(data);
+      buildTable();
+      renderBreadcrumb(path);
+    } catch (e) {
+      errorMsg.textContent = 'Error refreshing data.';
+      console.error(e);
+    }
+  }
+
+
+  function goUp() {
+    const currentPath = document.getElementById('dirInput').value.trim();
+    if (!currentPath || currentPath === '/' || currentPath === '') return;
+
+    const parts = currentPath.split('/').filter(Boolean);
+    parts.pop(); // Go one level up
+    const newPath = currentPath.startsWith('/') ? '/' + parts.join('/') : parts.join('/');
+
+    loadLs(newPath || '/');
+  }
+
+  function sortTable(colIndex) {
+    const key = ['name', 'size', 'type'][colIndex];
+    const direction = sortDirection[colIndex] ? 1 : -1;
+    sortDirection[colIndex] = !sortDirection[colIndex];
+
+    flatData.sort((a, b) => {
+      let valA = a[key];
+      let valB = b[key];
+      if (typeof valA === 'string') valA = valA.toLowerCase();
+      if (typeof valB === 'string') valB = valB.toLowerCase();
+      return (valA < valB ? -1 : valA > valB ? 1 : 0) * direction;
+    });
+
+    buildTable();
+  }
+
+  function filterTable() {
+    const search = document.getElementById('searchInput').value.toLowerCase();
+    const rows = document.querySelectorAll('#dirTableBody tr');
+
+    rows.forEach(row => {
+      const name = row.cells[0]?.textContent?.toLowerCase() || '';
+      row.style.display = name.includes(search) ? '' : 'none';
+    });
+  }
+</script>
+
+</body>
+</html>
