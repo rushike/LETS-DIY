@@ -1,0 +1,12 @@
+lambda/node_modules
+.ask/
+ask-resources.json
+node_modules
+.git
+.idea
+*.sqlite
+.DS_Store
+*.env*
+!.env.example
+*.pyc
+*venv/
