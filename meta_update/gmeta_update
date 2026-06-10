@@ -1,0 +1,222 @@
+#!/usr/bin/env bash
+
+# ==============================================================================
+# Script Name: gmeta_update (Version 7 - Google Supplemental Suffix Matcher)
+# Target path: /usr/local/bin/gmeta_update
+# ==============================================================================
+
+if ! command -v exiftool &> /dev/null; then
+    echo "Error: 'exiftool' is required but not installed." >&2
+    exit 1
+fi
+
+usage() {
+    echo "Usage: gmeta_update [-o <output_dir>] [-v <level>] <file_or_directory_1> [dir_2 ...]"
+    echo "Options:"
+    echo "  -o <output_dir>   Copy processed media to this folder instead of updating in-place."
+    echo "  -v <level>        Set output verbosity level:"
+    echo "                      1: None (Silent execution)"
+    echo "                      2: Operated logs with timestamp changes (Default)"
+    echo "                      3: Full dump including original target JSON string structure"
+    exit 1
+}
+
+# --- Parse Configuration Options ---
+OUTPUT_DIR=""
+VERBOSITY="2"
+
+while getopts "o:v:" opt; do
+    case "$opt" in
+        o) OUTPUT_DIR="$OPTARG" ;;
+        v) VERBOSITY="$OPTARG" ;;
+        *) usage ;;
+    esac
+done
+shift $((OPTIND-1))
+
+if [ "$#" -lt 1 ]; then
+    usage
+fi
+
+if [ ! -z "$OUTPUT_DIR" ]; then
+    mkdir -p "$OUTPUT_DIR"
+fi
+
+process_file() {
+    local file="$1"
+    local base_name=$(basename "$file")
+    local dir_name=$(dirname "$file")
+    
+    # --- PHASE 0: FIND DYNAMIC GOOGLE JSON SIDECAR ---
+    local json_sidecar=""
+    
+    # 1. Try standard match formats first
+    if [ -f "${file}.json" ]; then
+        json_sidecar="${file}.json"
+    elif [ -f "${file%.*}.json" ]; then
+        json_sidecar="${file%.*}.json"
+    else
+        # 2. Advanced Scan: Handles .supplemental-metadata.json or any truncated cuts
+        # We look for files matching the photo's base name followed by anything ending in .json
+        for candidate in "$dir_name/${base_name}"*.json "$dir_name/${base_name%.*}"*.json; do
+            if [ -f "$candidate" ]; then
+                json_sidecar="$candidate"
+                break
+            fi
+        done
+    fi
+
+    # Capture original file modification time for standard logging metrics
+    local old_ts
+    old_ts=$(exiftool -s -s -s -d "%Y-%m-%d %H:%M:%S" -FileModifyDate "$file" 2>/dev/null)
+    [ -z "$old_ts" ] && old_ts="Unknown/Blank"
+
+    # --- PHASE 1: PARSE TIMESTAMPS ---
+    local target_date=""
+    local source_method="NONE"
+
+    # 1. Read existing internal EXIF tags first
+    local native_date
+    native_date=$(exiftool -s -s -s -DateTimeOriginal "$file" 2>/dev/null)
+    [ -z "$native_date" ] && native_date=$(exiftool -s -s -s -CreateDate "$file" 2>/dev/null)
+
+    if [ ! -z "$native_date" ] && [[ "$native_date" =~ [0-9]{4} ]]; then
+        target_date="$native_date"
+        source_method="NATIVE EXIF"
+    elif [ ! -z "$json_sidecar" ] && [ -f "$json_sidecar" ]; then
+        # Fall back to Google Takeout JSON schema
+        local taken_time
+        taken_time=$(grep -A 2 '"photoTakenTime":' "$json_sidecar" 2>/dev/null | grep '"timestamp":' | sed -E 's/.*"([^"]+)".*/\1/')
+        if [ -z "$taken_time" ] || [ "$taken_time" == "0" ]; then
+            taken_time=$(grep -A 2 '"creationTime":' "$json_sidecar" 2>/dev/null | grep '"timestamp":' | sed -E 's/.*"([^"]+)".*/\1/')
+        fi
+
+        if [ ! -z "$taken_time" ] && [ "$taken_time" != "0" ]; then
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                target_date=$(date -r "$taken_time" +"%Y:%m:%d %H:%M:%S" 2>/dev/null)
+            else
+                target_date=$(date -d "@$taken_time" +"%Y:%m:%d %H:%M:%S" 2>/dev/null)
+            fi
+            source_method="GOOGLE JSON"
+        fi
+    fi
+
+    # 2. Filename-fallback injection routing
+    local run_fallback=false
+    if [ -z "$target_date" ]; then
+        source_method="FILENAME FALLBACK"
+        run_fallback=true
+    fi
+
+    # --- PHASE 2: INJECT ATTRS & ARGS EXECUTION ARRAY ---
+    local args=("-q" "-q" "-m")
+    
+    if [ -z "$OUTPUT_DIR" ]; then
+        args+=("-overwrite_original")
+    else
+        args+=("-out" "$OUTPUT_DIR")
+    fi
+
+    if [ ! -z "$target_date" ]; then
+        args+=("-DateTimeOriginal=$target_date" "-CreateDate=$target_date" "-ModifyDate=$target_date")
+        args+=("-FileModifyDate=$target_date")
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            args+=("-FileCreateDate=$target_date")
+        fi
+    fi
+
+    # Inject auxiliary parameters out of available sidebar components
+    if [ ! -z "$json_sidecar" ] && [ -f "$json_sidecar" ]; then
+        local desc title lat lon alt
+        title=$(grep '"title":' "$json_sidecar" 2>/dev/null | sed -E 's/.*"title":\s*"(.*)".*/\1/')
+        desc=$(grep '"description":' "$json_sidecar" 2>/dev/null | sed -E 's/.*"description":\s*"(.*)".*/\1/')
+        lat=$(grep '"latitude":' "$json_sidecar" 2>/dev/null | sed -E 's/.*"latitude":\s*([0-9.-]+).*/\1/')
+        lon=$(grep '"longitude":' "$json_sidecar" 2>/dev/null | sed -E 's/.*"longitude":\s*([0-9.-]+).*/\1/')
+        alt=$(grep '"altitude":' "$json_sidecar" 2>/dev/null | sed -E 's/.*"altitude":\s*([0-9.-]+).*/\1/')
+
+        title=$(echo "$title" | sed 's/[[:space:]]*$//')
+        desc=$(echo "$desc" | sed 's/[[:space:]]*$//')
+
+        [ ! -z "$title" ] && args+=("-Title=$title" "-ObjectName=$title")
+        [ ! -z "$desc" ] && args+=("-Description=$desc" "-UserComment=$desc")
+
+        if [ ! -z "$lat" ] && [ "$lat" != "0.0" ] && [ "$lat" != "0" ]; then
+            args+=("-GPSLatitude=$lat" "-GPSLongitude=$lon" "-GPSAltitude=$alt")
+            args+=("-GPSLatitudeRef=$([[ $(echo "$lat > 0" | bc -l 2>/dev/null) -eq 1 ]] && echo "N" || echo "S")")
+            args+=("-GPSLongitudeRef=$([[ $(echo "$lon > 0" | bc -l 2>/dev/null) -eq 1 ]] && echo "E" || echo "W")")
+        fi
+    fi
+
+    # Trigger core payload operations or execute filename fallbacks
+    if [ "$run_fallback" = true ]; then
+        if [ -z "$OUTPUT_DIR" ]; then
+            exiftool -q -q -m "-FileModifyDate<FileName" -overwrite_original "$file" 2>/dev/null
+            [[ "$OSTYPE" == "darwin"* ]] && exiftool -q -q -m "-FileCreateDate<FileName" -overwrite_original "$file" 2>/dev/null
+        else
+            cp "$file" "$OUTPUT_DIR/$base_name"
+            exiftool -q -q -m "-FileModifyDate<FileName" -overwrite_original "$OUTPUT_DIR/$base_name" 2>/dev/null
+            [[ "$OSTYPE" == "darwin"* ]] && exiftool -q -q -m "-FileCreateDate<FileName" -overwrite_original "$OUTPUT_DIR/$base_name" 2>/dev/null
+        fi
+    elif [ "${#args[@]}" -gt 3 ] || [ ! -z "$OUTPUT_DIR" ]; then
+        exiftool "${args[@]}" "$file" 2>/dev/null
+    else
+        source_method="METADATA ONLY"
+    fi
+
+    # --- PHASE 3: VERBOSE MAPPING VISIBILITY LOGIC ---
+    if [ "$VERBOSITY" != "1" ]; then
+        local final_target="$file"
+        [ ! -z "$OUTPUT_DIR" ] && final_target="$OUTPUT_DIR/$base_name"
+        
+        local new_ts
+        new_ts=$(exiftool -s -s -s -d "%Y-%m-%d %H:%M:%S" -FileModifyDate "$final_target" 2>/dev/null)
+        [ -z "$new_ts" ] && new_ts="$target_date"
+        
+        if [[ "$new_ts" =~ [0-9]{4}:[0-9]{2}:[0-9]{2} ]]; then
+            new_ts=$(echo "$new_ts" | sed 's/:/-/1' | sed 's/:/-/1')
+        fi
+
+        printf "Operated: %-45s | Method: %-17s | TS: [%s] -> [%s]\n" \
+            "$base_name" "$source_method" "$old_ts" "$new_ts"
+
+        if [ "$VERBOSITY" == "3" ]; then
+            echo "----> [RAW METADATA SIDE BLOCK STRUCTURE]"
+            if [ ! -z "$json_sidecar" ] && [ -f "$json_sidecar" ]; then
+                echo "      Matched Sidecar: $(basename "$json_sidecar")"
+                cat "$json_sidecar" | sed 's/^/      /'
+            else
+                echo "      No matching JSON sidecar found on system path directory loop."
+            fi
+            echo "------------------------------------------------------------------------------------------------------------------------"
+        fi
+    fi
+}
+
+# --- Global Input Directory Scan Routing ---
+for item in "$@"; do
+    if [ -f "$item" ]; then
+        # Dynamically ignore all JSON layout files
+        [[ "$item" == *.json ]] && continue
+        process_file "$item"
+    elif [ -d "$item" ]; then
+        if [ "$VERBOSITY" != "1" ]; then
+            if [ ! -z "$OUTPUT_DIR" ]; then
+                echo "Processing folder: $item -> Output folder: $OUTPUT_DIR (Verbosity Level: $VERBOSITY)"
+            else
+                echo "Processing folder: $item (In-place mode) (Verbosity Level: $VERBOSITY)"
+            fi
+            echo "------------------------------------------------------------------------------------------------------------------------"
+        fi
+        
+        find "$item" -type f ! -name "*.json" -print0 2>/dev/null | while IFS= read -r -d '' target; do
+            process_file "$target"
+        done
+    else
+        echo "Warning: Target path '$item' is invalid. Skipping." >&2
+    fi
+done
+
+if [ "$VERBOSITY" != "1" ]; then
+    echo "------------------------------------------------------------------------------------------------------------------------"
+    echo "Processing complete!"
+fi
