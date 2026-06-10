@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Join Channels</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <nav>
+        <a href="index.html">Dashboard</a>
+        <a href="setup.html">Auth Setup</a>
+        <a href="join.html" class="active">Join Groups</a>
+        <a href="settings.html">Settings</a>
+    </nav>
+
+    <div class="container">
+        <h2>Batch Joiner</h2>
+        <div class="field">
+            <label>Invite Links (One per line)</label>
+            <textarea id="links" rows="6" placeholder="https://t.me/example"></textarea>
+        </div>
+
+        <button class="btn-blue" style="width: 100%;" onclick="joinChannels()">Start Joining</button>
+
+        <div id="status">Results will appear here...</div>
+    </div>
+
+    <script>
+        async function joinChannels() {
+            const config = JSON.parse(localStorage.getItem('tg_forwarder_config'));
+            const links = document.getElementById('links').value.split('\n').filter(l => l.trim() !== "");
+
+            document.getElementById('status').innerText = "> Joining... please wait.";
+
+            const res = await fetch('/api/join', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ credentials: config, links: links, phone: config.phone })
+            });
+
+            const results = await res.json();
+            let summary = results.map(r => `${r.link}: ${r.status} ${r.error || ''}`).join('\n');
+            document.getElementById('status').innerText = summary;
+        }
+    </script>
+</body>
+
+</html>

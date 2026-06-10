@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Telegram Setup</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <nav>
+        <a href="index.html">Dashboard</a>
+        <a href="setup.html" class="active">Auth Setup</a>
+        <a href="join.html">Join Groups</a>
+        <a href="settings.html">Settings</a>
+    </nav>
+
+    <div class="container">
+        <h2>Login Authentication</h2>
+        
+        <div id="request-section">
+            <p style="font-size: 0.8rem; color: #888;">Step 1: Send Login Request to your Telegram account.</p>
+            <div class="btn-group">
+                <button class="btn-blue" onclick="requestAuth()">Request OTP Code</button>
+            </div>
+        </div>
+
+        <div id="otp-section" style="display:none; margin-top: 20px; border-top: 1px solid var(--border); padding-top: 20px;">
+            <p style="font-size: 0.8rem; color: #888;">Step 2: Enter the 5-digit code received.</p>
+            <div class="field">
+                <label>Enter Telegram Code</label>
+                <input type="text" id="otp_code" placeholder="12345" autocomplete="off">
+            </div>
+            <button class="btn-green" style="width: 100%;" onclick="verifyCode()">Verify & Login</button>
+        </div>
+
+        <div id="status">Waiting for action...</div>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'tg_forwarder_config';
+
+        function updateStatus(msg, isError = false) {
+            const statusEl = document.getElementById('status');
+            statusEl.innerText = "> " + msg;
+            statusEl.style.color = isError ? "var(--error)" : "#858585";
+        }
+
+        async function requestAuth() {
+            const config = JSON.parse(localStorage.getItem(STORAGE_KEY));
+            if (!config || !config.api_id || !config.phone) { 
+                updateStatus("Error: API ID and Phone missing in Settings!", true); 
+                return; 
+            }
+
+            updateStatus("Connecting to Telegram...");
+
+            try {
+                const res = await fetch('/api/setup', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(config)
+                });
+                
+                const data = await res.json();
+                updateStatus(data.message);
+                
+                if (data.status === "code_sent") {
+                    document.getElementById('otp-section').style.display = 'block';
+                } else if (data.status === "authorized") {
+                    updateStatus("Success: Already logged in!");
+                }
+            } catch (err) {
+                updateStatus("Server Error: Is FastAPI running?", true);
+            }
+        }
+
+        async function verifyCode() {
+            const config = JSON.parse(localStorage.getItem(STORAGE_KEY));
+            const code = document.getElementById('otp_code').value.trim();
+
+            if (!code) {
+                updateStatus("Please enter the code first.", true);
+                return;
+            }
+
+            updateStatus("Verifying code...");
+
+            try {
+                const res = await fetch('/api/verify', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        phone: config.phone,
+                        code: code,
+                        api_id: config.api_id,
+                        api_hash: config.api_hash
+                    })
+                });
+
+                const data = await res.json();
+
+                if (data.status === "success") {
+                    updateStatus("Login Successful! You can now use the Forwarder.");
+                    document.getElementById('otp-section').style.display = 'none';
+                    // Optional: Redirect to dashboard after 2 seconds
+                    setTimeout(() => { window.location.href = 'index.html'; }, 2000);
+                } else {
+                    updateStatus("Error: " + data.message, true);
+                }
+            } catch (err) {
+                updateStatus("Connection failed during verification.", true);
+            }
+        }
+    </script>
+</body>
+</html>

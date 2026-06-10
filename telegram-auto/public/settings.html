@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Telegram Forwarder</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <nav>
+        <a href="index.html">Dashboard</a>
+        <a href="setup.html">Auth Setup</a>
+        <a href="join.html">Join Groups</a>
+        <a href="settings.html" class="active">Settings</a>
+    </nav>
+
+    <div class="container">
+        <h2>Telegram Settings</h2>
+
+        <div class="field">
+            <label>API ID</label>
+            <input type="text" id="api_id" placeholder="e.g. 1234567">
+        </div>
+
+        <div class="field">
+            <label>API Hash</label>
+            <input type="password" id="api_hash" placeholder="Enter hash">
+        </div>
+
+        <div class="field">
+            <label>Phone Number</label>
+            <input type="text" id="phone" placeholder="+1234567890">
+        </div>
+
+        <div class="field">
+            <label>Target Channels (IDs/Links - One per line)</label>
+            <textarea id="channels" rows="4" placeholder="https://t.me/..."></textarea>
+        </div>
+
+        <div class="btn-group" style="display: flex; flex-direction: column; gap: 10px;">
+            <button class="btn-blue" onclick="saveSettings()">Store in Local Storage</button>
+            <button class="btn-blue" onclick="saveUserDetails()">Store User Details in DB</button>
+            <button class="btn-blue" onclick="storeOtherSettings()">Store Other Settings</button>
+        </div>
+
+        <div id="status">Ready.</div>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'tg_forwarder_config';
+
+        // Load settings from localStorage on startup
+        window.onload = () => {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                const data = JSON.parse(saved);
+                document.getElementById('api_id').value = data.api_id || '';
+                document.getElementById('api_hash').value = data.api_hash || '';
+                document.getElementById('phone').value = data.phone || '';
+                document.getElementById('channels').value = data.channels || '';
+                updateStatus('Settings loaded from local storage.');
+            }
+        };
+
+        function saveSettings() {
+            const config = {
+                api_id: document.getElementById('api_id').value,
+                api_hash: document.getElementById('api_hash').value,
+                phone: document.getElementById('phone').value,
+                channels: document.getElementById('channels').value
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+            updateStatus('Settings saved successfully!');
+        }
+
+        async function saveUserDetails() {
+            const config = {
+                api_id: document.getElementById('api_id').value,
+                api_hash: document.getElementById('api_hash').value,
+                phone: document.getElementById('phone').value,
+                channels: document.getElementById('channels').value,
+                is_bot: false // You can make this dynamic if needed
+            };
+
+            updateStatus('Saving user details to database...');
+
+            try {
+                const response = await fetch('/api/settings/user', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                const result = await response.json();
+                updateStatus(result.status === 'success' ? 'User details stored in database successfully!' : 'Error: ' + result.message);
+            } catch (err) {
+                updateStatus('Error: Failed to fetch /api/settings/user');
+            }
+        }
+
+        function storeOtherSettings() {
+            // Placeholder for other settings
+            updateStatus('Storing other settings is not yet implemented.');
+        }
+
+        async function startForwarder() {
+            const config = JSON.parse(localStorage.getItem(STORAGE_KEY));
+            if (!config || !config.api_id) {
+                updateStatus('Error: Please store in local storage first.');
+                return;
+            }
+
+            updateStatus('Connecting to FastAPI...');
+
+            try {
+                const response = await fetch('/api/forward/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                const result = await response.json();
+                updateStatus('Server: ' + (result.message || result.status));
+            } catch (err) {
+                updateStatus('Error: Check if FastAPI server is running.');
+            }
+        }
+
+        function updateStatus(msg) {
+            document.getElementById('status').innerText = '> ' + msg;
+        }
+    </script>
+
+</body>
+
+</html>

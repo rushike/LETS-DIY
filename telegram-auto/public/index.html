@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Telegram Forwarder - Dashboard</title>
+
+<link rel="stylesheet" href="style.css">
+
+<script src="state.js"></script>
+
+</head>
+
+<body>
+
+<nav class="navbar">
+
+<div class="nav-links">
+
+<a href="index.html" class="active">Dashboard</a>
+
+<a href="setup.html">Auth Setup</a>
+
+<a href="join.html">Join Groups</a>
+
+<a href="settings.html">Settings</a>
+
+</div>
+
+
+<div class="nav-toggle-container">
+
+<label class="switch-label">
+
+<span>Bypass Cache</span>
+
+<input type="checkbox" id="refresh-toggle" onchange="handleToggleChange(this.checked)">
+
+<span class="slider"></span>
+
+</label>
+
+</div>
+
+</nav>
+
+
+
+<div class="container">
+
+<header>
+
+<h2>Forwarder Control</h2>
+
+<p>Manage your Telegram connection and view synced channels.</p>
+
+</header>
+
+
+<div class="btn-group">
+
+<button class="btn btn-blue" onclick="initializeSession()">Check Session</button>
+
+<button class="btn btn-orange" onclick="loadChannels()">Load Channels</button>
+</div>
+
+
+
+<div id="status" class="status-box">System Ready.</div>
+
+
+
+<div id="channel-container" class="data-section" style="display: none;">
+
+<div class="section-header">
+
+<h3>Your Channels & Groups</h3>
+
+<span id="cache-indicator" class="badge"></span>
+
+</div>
+
+<div class="table-wrapper">
+
+<table id="channel-table">
+
+<thead>
+
+<tr>
+
+<th>Title</th>
+
+<th>ID</th>
+
+<th>Type</th>
+
+<th>Username</th>
+
+</tr>
+
+</thead>
+
+<tbody id="channel-list-body">
+
+</tbody>
+
+</table>
+
+</div>
+
+</div>
+
+</div>
+
+
+
+<script>
+
+// On Page Load: Sync UI with the central state
+
+window.onload = () => {
+
+const currentState = getState();
+
+
+// Set toggle position from saved state
+
+document.getElementById('refresh-toggle').checked = !!currentState.refreshEnabled;
+
+
+if (currentState.config && currentState.config.api_id) {
+
+initializeSession();
+
+} else {
+
+updateStatus("> Warning: No configuration found. Go to Settings first.", "#FF9800");
+
+}
+
+};
+
+
+
+function handleToggleChange(isRefreshEnabled) {
+
+setState({ refreshEnabled: isRefreshEnabled });
+
+const msg = isRefreshEnabled ? "Cache bypass enabled." : "Using SQLite cache.";
+
+updateStatus(`> ${msg}`, "#666");
+
+}
+
+
+
+function updateStatus(text, color = "#333") {
+
+const el = document.getElementById('status');
+
+el.innerText = text;
+
+el.style.color = color;
+
+}
+
+
+
+async function initializeSession() {
+
+const { config } = getState();
+
+updateStatus("> Initializing Telegram client...");
+
+
+try {
+
+const response = await fetch('/api/init', {
+
+method: 'POST',
+
+headers: { 'Content-Type': 'application/json' },
+
+body: JSON.stringify(config)
+
+});
+
+const data = await response.json();
+
+
+if (data.status === "authorized") {
+
+updateStatus("> " + data.message, "#4CAF50");
+
+} else {
+
+updateStatus("> " + data.message, "#FF9800");
+
+}
+
+} catch (e) {
+
+updateStatus("> Connection to API failed.", "#f44336");
+
+}
+
+}
+
+
+
+async function loadChannels() {
+
+const { config, refreshEnabled } = getState();
+
+if (!config) return updateStatus("> Error: Settings missing.", "#f44336");
+
+
+
+const container = document.getElementById('channel-container');
+
+const tbody = document.getElementById('channel-list-body');
+
+const indicator = document.getElementById('cache-indicator');
+
+
+
+updateStatus(refreshEnabled ? "> Fetching live data (Bypassing Cache)..." : "> Fetching from database...");
+
+tbody.innerHTML = "";
+
+
+
+try {
+
+// Build URL with refresh param based on toggle state
+
+const url = `/api/channels?own=true${refreshEnabled ? '&refresh=true' : ''}`;
+
+
+const response = await fetch(url, {
+
+method: 'POST',
+
+headers: { 'Content-Type': 'application/json' },
+
+body: JSON.stringify(config)
+
+});
+
+const data = await response.json();
+
+
+
+if (data.status === "success") {
+
+updateStatus(`> Found ${data.channels.length} channels.`);
+
+container.style.display = "block";
+
+
+// Show source badge
+
+indicator.innerText = data.source === "cache" ? "FROM CACHE" : "LIVE DATA";
+
+indicator.className = `badge ${data.source === 'cache' ? 'bg-grey' : 'bg-blue'}`;
+
+
+
+data.channels.forEach(ch => {
+
+const row = `
+<tr>
+        <td><strong>${ch.title}</strong></td>
+        <td><code>${ch.id}</code></td>
+        <td>${ch.is_channel ? 'Channel' : 'Group'}</td>
+        <td>
+            <a href="channel_sync.html?channel-id=${ch.id}" class="btn-orange" 
+               style="text-decoration:none; padding: 4px 8px; font-size: 11px;">
+               Sync Files
+            </a>
+        </td>
+    </tr>
+
+`;
+
+tbody.innerHTML += row;
+
+});
+
+} else {
+
+updateStatus("> Error: " + data.message, "#f44336");
+
+}
+
+} catch (e) {
+
+updateStatus("> Failed to reach server.", "#f44336");
+
+}
+
+}
+
+
+
+async function controlForwarder(action) {
+
+const { config } = getState();
+
+updateStatus(`> Attempting to ${action} forwarder...`);
+
+try {
+
+const response = await fetch(`/api/forward/${action}`, {
+
+method: 'POST',
+
+headers: { 'Content-Type': 'application/json' },
+
+body: JSON.stringify(config)
+
+});
+
+const data = await response.json();
+
+updateStatus("> " + (data.status || data.message));
+
+} catch (e) {
+
+updateStatus("> Request Failed.", "#f44336");
+
+}
+
+}
+
+</script>
+
+
+
+<style>
+
+.nav-toggle-container { display: flex; align-items: center; font-size: 0.85rem; }
+
+.switch-label { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+
+</style>
+
+</body>
+
+</html>

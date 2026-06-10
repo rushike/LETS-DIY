@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Channel Sync - File Loader</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="state.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+        :root {
+            --accent: #2196F3;
+            --success: #4CAF50;
+            --danger: #f44336;
+            --grey: #666;
+        }
+
+        .container {
+            width: 90vw;
+            margin: 20px auto;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        /* Channel Detail Card */
+        .channel-card {
+            background: #ffffff;
+            border-left: 5px solid var(--accent);
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .channel-card h4 {
+            margin: 0 0 8px 0;
+            color: #333;
+            font-size: 1.2rem;
+        }
+
+        .channel-card p {
+            margin: 4px 0;
+            font-size: 0.9rem;
+            color: #000;
+        }
+
+        .channel-card code {
+            background: #eee;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+
+        /* Status Badges */
+        .badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            color: white;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .bg-grey {
+            background: var(--grey);
+        }
+
+        .bg-blue {
+            background: var(--accent);
+        }
+
+        .bg-success {
+            background: var(--success);
+        }
+
+        .bg-danger {
+            background: var(--danger);
+        }
+
+        /* Utilities */
+        .btn-success {
+            background: var(--success);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .btn-success:hover {
+            background: #45a049;
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+            transition: opacity 0.2s;
+        }
+
+        .btn-danger:hover {
+            opacity: 0.8;
+        }
+
+        /* Thumbnail Preview in Table */
+        .table-thumb {
+            width: 45px;
+            height: 45px;
+            object-fit: cover;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            background: #f9f9f9;
+        }
+
+        .no-thumb {
+            width: 45px;
+            height: 45px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #eee;
+            border-radius: 4px;
+            font-size: 1.2rem;
+        }
+
+        .file-name-text {
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: #333;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 250px;
+        }
+
+        .msg-text {
+            font-size: 0.85rem;
+            color: #555;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        /* Ensure the table stays compact */
+        #message-table td {
+            padding: 8px;
+            vertical-align: middle;
+        }
+
+        #status {
+            font-family: monospace;
+            font-size: 0.85rem;
+            padding: 10px;
+            border-radius: 4px;
+            background: #f0f0f0;
+            min-height: 20px;
+        }
+
+        #message-table td {
+            vertical-align: middle;
+            border-bottom: 1px solid #eee;
+        }
+
+        #message-table code {
+            color: var(--accent);
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <nav class="navbar">
+        <div class="nav-links">
+            <a href="index.html">Dashboard</a>
+            <a href="setup.html">Auth Setup</a>
+            <a href="join.html">Join Groups</a>
+            <a href="settings.html">Settings</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <header>
+            <h2 id="channel-title">Channel Sync</h2>
+            <p>Target ID: <code id="display-id">...</code></p>
+        </header>
+
+        <div id="channel-card" class="channel-card" style="display: none;">
+            <div class="card-content">
+                <h4 id="card-title">Loading Channel...</h4>
+                <p><strong>Type:</strong> <span id="card-type">-</span> | <strong>Owner:</strong> <span
+                        id="card-owner">-</span></p>
+                <p><strong>Username:</strong> <code id="card-username">@none</code></p>
+            </div>
+        </div>
+
+        <div class="data-section" style="margin-top: 30px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3>Recent Channel Messages</h3>
+                <button class="btn-outline" onclick="loadMessages(true)" style="font-size: 12px; padding: 5px 10px;">
+                    🔄 Force Refresh Sync
+                </button>
+            </div>
+            <div class="table-wrapper">
+                <table id="message-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 80px;">Msg ID</th>
+                            <th>Date</th>
+                            <th>Content Preview</th>
+                            <th>Media</th>
+                            <th>Stats</th>
+                        </tr>
+                    </thead>
+                    <tbody id="message-list-body">
+                        <tr>
+                            <td colspan="5" style="text-align:center; color:#999;">Click refresh to sync messages...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="field">
+            <label class="text-xl mt-5 ">Local Directory Path</label>
+            <textarea id="directory-path" placeholder="C:/Users/Videos/ProjectX&#10;D:/Another/Path"
+                style="width: 100%; padding: 8px; margin-top: 5px; min-height: 80px;"
+                oninput="updateChannelPath(this.value)"></textarea>
+        </div>
+
+        <div class="btn-group" style="margin-top: 15px; display: flex; gap: 10px;">
+            <button class="btn-blue" onclick="scanDirectory()">Scan & Load Files</button>
+            <button class="btn-outline" onclick="loadFileTree()">Refresh Table</button>
+            <button class="btn-success" onclick="uploadAll()">Upload All Pending</button>
+        </div>
+
+        <div id="status" style="margin: 15px 0;">> Waiting for input...</div>
+
+        <div class="data-section">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3>File Queue</h3>
+                <small id="last-updated" style="color: #888;"></small>
+            </div>
+            <div class="table-wrapper">
+                <table id="channel-table">
+                    <thead>
+                        <tr>
+                            <th>Folder</th>
+                            <th>Filename</th>
+                            <th>Size (MB)</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="file-tree-body">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const channelId = urlParams.get('channel-id');
+        let pollInterval;
+
+        // Function to save path to the global state object
+        function updateChannelPath(path) {
+            const currentState = getState();
+            // Initialize paths object if it doesn't exist
+            const paths = currentState.channelPaths || {};
+
+            // Update path for the specific channel
+            paths[channelId] = path;
+
+            // Save back to localStorage via state.js
+            setState({ channelPaths: paths });
+        }
+
+        // Update your window.onload to include this:
+        window.onload = () => {
+            if (!channelId) {
+                updateStatus("Error: No Channel ID provided in URL.", "#f44336");
+                return;
+            }
+            document.getElementById('display-id').innerText = channelId;
+
+            // --- RESTORE SAVED PATH ---
+            const savedPaths = getState().channelPaths || {};
+            if (savedPaths[channelId]) {
+                document.getElementById('directory-path').value = savedPaths[channelId];
+            }
+            // --------------------------
+
+            loadChannelInfo();
+            loadFileTree();
+            loadMessages();
+
+            pollInterval = setInterval(() => {
+                loadFileTree();
+                loadMessages(false);
+            }, 100000);
+        };
+        async function loadMessages(forceRefresh = false) {
+            const { config } = getState();
+            if (!config || !config.phone) return;
+
+            const tbody = document.getElementById('message-list-body');
+            const url = `/api/channel/messages?channel_id=${encodeURIComponent(channelId)}&phone=${encodeURIComponent(config.phone)}&refresh=${forceRefresh}`;
+
+            try {
+                if (forceRefresh) updateStatus("> Syncing messages from Telegram...", "#2196F3");
+
+                const res = await fetch(url);
+                const data = await res.json();
+
+                if (data.status === "success") {
+                    let html = '';
+                    if (data.messages.length === 0) {
+                        html = '<tr><td colspan="5" style="text-align:center;">No messages found in database.</td></tr>';
+                    } else {
+                        data.messages.forEach(msg => {
+                            const dateStr = new Date(msg.date).toLocaleString();
+
+                            // Handle Content: Show File Name if available, otherwise Text
+                            const content = msg.file_name
+                                ? `<div class="file-name-text">📄 ${msg.file_name}</div>`
+                                : `<div class="msg-text">${msg.text || '<em style="color:#aaa;">(No text)</em>'}</div>`;
+
+                            // Handle Thumbnail (Base64)
+                            const thumbImg = msg.thumbnail
+                                ? `<img src="data:image/jpeg;base64,${msg.thumbnail}" class="table-thumb" alt="preview">`
+                                : `<div class="no-thumb">${msg.media_type ? '🎬' : '💬'}</div>`;
+
+                            // Format Size
+                            const sizeMB = msg.file_size ? (msg.file_size / (1024 * 1024)).toFixed(1) + 'MB' : '-';
+
+                            html += `
+                                <tr>
+                                    <td><code>${msg.message_id}</code></td>
+                                    <td style="font-size:0.75rem; white-space:nowrap;">${dateStr}</td>
+                                    <td>
+                                        <div style="display:flex; align-items:center; gap:10px;">
+                                            ${thumbImg}
+                                            <div style="overflow:hidden;">
+                                                ${content}
+                                                <small style="color:#888;">${sizeMB} • ${msg.mime_type || 'text'}</small>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td><span class="badge ${msg.has_media ? 'bg-blue' : 'bg-grey'}">${msg.media_type || 'Text'}</span></td>
+                                    <td style="font-size:0.75rem; color:#666;">
+                                        ${msg.duration ? `⏱️ ${msg.duration}s<br>` : ''}
+                                        ${msg.width ? `📐 ${msg.width}x${msg.height}` : ''}
+                                    </td>
+                                </tr>
+                            `;
+                        });
+                    }
+                    tbody.innerHTML = html;
+                    if (forceRefresh) updateStatus("> Message sync complete.", "#4CAF50");
+                }
+            } catch (e) {
+                console.error("Failed to load messages", e);
+                updateStatus("> Error loading messages.", "#f44336");
+            }
+        }
+        async function loadChannelInfo() {
+            const { config } = getState();
+            if (!config || !config.phone) return;
+
+            try {
+                const res = await fetch(`/api/channel/${encodeURIComponent(channelId)}?phone=${encodeURIComponent(config.phone)}`);
+                const data = await res.json();
+
+                if (data.status === "success") {
+                    const c = data.channel;
+                    document.getElementById('channel-title').innerText = `Syncing: ${c.title}`;
+
+                    // Populate Card
+                    document.getElementById('channel-card').style.display = 'block';
+                    document.getElementById('card-title').innerText = c.title;
+                    document.getElementById('card-type').innerText = c.is_channel ? "Channel" : "Group";
+                    document.getElementById('card-owner').innerText = c.is_owner ? "Yes" : "No";
+                    document.getElementById('card-username').innerText = c.username ? `@${c.username}` : "Private";
+                } else {
+                    updateStatus(`> Alert: ${data.message}`, "#ff9800");
+                }
+            } catch (e) {
+                console.error("Could not load channel metadata", e);
+            }
+        }
+
+        async function scanDirectory() {
+            const { config } = getState();
+            if (!config || !config.phone) return alert("Please set up auth first.");
+
+            const pathsText = document.getElementById('directory-path').value;
+            if (!pathsText) return alert("Please enter at least one path");
+
+            const paths = pathsText.split('\n').map(p => p.trim()).filter(Boolean);
+            if (paths.length === 0) return alert("Please enter at least one valid path");
+
+            updateStatus(`> Scanning ${paths.length} directories... this may take a moment.`, "#2196F3");
+
+            let totalFound = 0;
+            let hasError = false;
+
+            for (const path of paths) {
+                try {
+                    updateStatus(`> Scanning ${path}...`, "#2196F3");
+                    const res = await fetch(`/api/file-load?parent_dir=${encodeURIComponent(path)}&file_type=${encodeURIComponent("mp4,mpg,avi,flv")}&channel_id=${encodeURIComponent(channelId)}&phone=${encodeURIComponent(config.phone)}`, {
+                        method: 'POST'
+                    });
+                    const data = await res.json();
+                    if (data.status === "success") {
+                        totalFound += data.files_found;
+                    } else {
+                        updateStatus(`> Error for ${path}: ${data.message}`, "#f44336");
+                        hasError = true;
+                    }
+                } catch (e) {
+                    updateStatus(`> Error connecting to server for ${path}.`, "#f44336");
+                    hasError = true;
+                }
+            }
+
+            if (!hasError) {
+                updateStatus(`> Success: Found a total of ${totalFound} files across all directories.`, "#4CAF50");
+            } else {
+                updateStatus(`> Completed with errors. Found ${totalFound} files overall.`, "#ff9800");
+            }
+            loadFileTree();
+        }
+
+        async function loadFileTree() {
+            const { config } = getState();
+            if (!config || !config.phone) return;
+
+            const tbody = document.getElementById('file-tree-body');
+            try {
+                const res = await fetch(`/api/file-tree?channel_id=${encodeURIComponent(channelId)}&phone=${encodeURIComponent(config.phone)}`);
+                const data = await res.json();
+
+                document.getElementById('last-updated').innerText = `Updated: ${new Date().toLocaleTimeString()}`;
+
+                // 1. Group files by parent_dir
+                const groups = data.data.reduce((acc, file) => {
+                    if (!acc[file.parent_dir]) acc[file.parent_dir] = [];
+                    acc[file.parent_dir].push(file);
+                    return acc;
+                }, {});
+
+                // 2. Build HTML
+                let html = '';
+                Object.keys(groups).forEach((dir, index) => {
+                    const folderName = dir.split(/[\\/]/).filter(Boolean).pop() || "Root";
+                    const files = groups[dir];
+                    const groupId = `group-${index}`;
+
+                    // Header Row (The Group)
+                    html += `
+                        <tr class="folder-header" onclick="toggleGroup('${groupId}')" style="cursor:pointer; background: #f8f9fa;">
+                            <td colspan="4" style="font-weight:bold; color: var(--accent);">
+                                <span id="icon-${groupId}">▶</span> 📁 ${folderName} 
+                                <span style="font-weight:normal; color:#666; font-size:0.8rem;">(${files.length} files)</span>
+                                <small style="display:block; font-weight:normal; color:#aaa; font-size:0.7rem;">${dir}</small>
+                            </td>
+                            <td style="text-align: right; padding-right: 15px;">
+                                <button class="btn-danger" 
+                                    onclick="event.stopPropagation(); deleteGroup('${dir}')" 
+                                    style="padding: 4px 10px; font-size: 11px; border: none; border-radius: 4px; cursor: pointer;">
+                                    Delete Group
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                    // File Rows (Hidden by default)
+                    files.forEach(file => {
+                        const fileName = file.file_path.split(/[\\/]/).pop();
+                        html += `
+                            <tr class="${groupId}" style="display: none; background: #fff;">
+                                <td style="padding-left: 30px; color: #888;"> ↳ </td>
+                                <td title="${file.file_path}" style="font-size: 0.75rem;">${fileName}</td>
+                                <td>${(file.size / (1024 * 1024)).toFixed(2)}</td>
+                                <td><span class="badge ${getStatusClass(file.status)}">${file.status}</span></td>
+                                <td><button class="btn-blue" onclick="event.stopPropagation(); uploadSingle('${file.id}')" style="padding: 2px 8px; font-size: 10px;">Upload</button></td>
+                            </tr>
+                        `;
+                    });
+                });
+
+                tbody.innerHTML = html;
+            } catch (e) {
+                console.error("Polling update failed.", e);
+            }
+        }
+
+        async function deleteGroup(parentDir) {
+            const { config } = getState();
+            if (!config || !config.phone) return alert("Auth config missing.");
+
+            if (!confirm(`Are you sure you want to remove all records for:\n${parentDir}?`)) return;
+
+            try {
+                const res = await fetch(`/api/file-delete?parent_dir=${encodeURIComponent(parentDir)}&phone=${encodeURIComponent(config.phone)}`, {
+                    method: 'DELETE'
+                });
+                const data = await res.json();
+
+                if (data.status === "success") {
+                    updateStatus(`> Deleted group: ${parentDir}`, "#f44336");
+                    loadFileTree(); // Refresh the table
+                } else {
+                    alert("Delete failed: " + data.message);
+                }
+            } catch (e) {
+                console.error("Error deleting group:", e);
+                updateStatus("> Error connecting to server for deletion.", "#f44336");
+            }
+        }
+        // Helper to toggle visibility
+        function toggleGroup(groupId) {
+            const rows = document.getElementsByClassName(groupId);
+            const icon = document.getElementById(`icon-${groupId}`);
+            const isExpanded = rows[0].style.display !== 'none';
+
+            for (let row of rows) {
+                row.style.display = isExpanded ? 'none' : 'table-row';
+            }
+            icon.innerText = isExpanded ? '▶' : '▼';
+        }
+
+        async function uploadAll() {
+            const { config } = getState();
+            if (!confirm("Start background upload for all pending files?")) return;
+
+            updateStatus("> Initiating background upload task...", "#2196F3");
+            try {
+                const res = await fetch('/api/forward/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                const data = await res.json();
+                updateStatus(`> ${data.status}`, "#4CAF50");
+            } catch (e) {
+                updateStatus("> Failed to trigger background forwarder.", "#f44336");
+            }
+        }
+
+        function getStatusClass(status) {
+            switch (status.toLowerCase()) {
+                case 'pending': return 'bg-grey';
+                case 'uploading': return 'bg-blue';
+                case 'uploaded': return 'bg-success';
+                case 'error': return 'bg-danger';
+                default: return 'bg-grey';
+            }
+        }
+
+        function updateStatus(text, color = "#ccc") {
+            const el = document.getElementById('status');
+            el.innerText = text;
+            el.style.color = color;
+        }
+    </script>
+</body>
+
+</html>
